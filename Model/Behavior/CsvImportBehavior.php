@@ -52,7 +52,8 @@ class CsvImportBehavior extends ModelBehavior {
 			$this->settings[$Model->alias] = array(
 				'delimiter' => ';',
 				'enclosure' => '"',
-				'hasHeader' => true
+				'hasHeader' => true,
+				'skip_first_row' => false,
 			);
 		}
 		$this->settings[$Model->alias] = array_merge($this->settings[$Model->alias], $settings);
@@ -111,11 +112,15 @@ class CsvImportBehavior extends ModelBehavior {
 		$header = $this->_getHeader($Model, $handle);
 		$db = $Model->getDataSource();
 		$db->begin($Model);
-
-
-		$saved = array();
 		$i = 0;
+		$saved = array();
+
 		while (($row = $this->_getCSVLine($Model, $handle)) !== false) {
+			if(isset($this->settings[$Model->alias]['skip_first_row']) && $this->settings[$Model->alias]['skip_first_row'] && $i == 0){
+				$i++;
+				continue;
+			}
+
 			$data = array();
 			foreach ($header as $k => $col) {
 				// get the data field from Model.field
