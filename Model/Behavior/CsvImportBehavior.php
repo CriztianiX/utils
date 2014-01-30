@@ -86,8 +86,13 @@ class CsvImportBehavior extends ModelBehavior {
 		if ($this->settings[$Model->alias]['hasHeader'] === true) {
 			$header = $this->_getCSVLine($Model, $handle);
 		} else {
-			$header = array_keys($Model->schema());
+			if(isset($this->settings[$Model->alias]['header'])){
+				$header = $this->settings[$Model->alias]['header'];
+			}else{
+				$header = array_keys($Model->schema());
+			}
 		}
+
 		return $header;
 	}
 
@@ -106,6 +111,8 @@ class CsvImportBehavior extends ModelBehavior {
 		$header = $this->_getHeader($Model, $handle);
 		$db = $Model->getDataSource();
 		$db->begin($Model);
+
+
 		$saved = array();
 		$i = 0;
 		while (($row = $this->_getCSVLine($Model, $handle)) !== false) {
@@ -124,7 +131,7 @@ class CsvImportBehavior extends ModelBehavior {
 				}
 			}
 
-			$data = Set::merge($data, $fixed);
+			$data = array($Model->alias => Set::merge($data[$Model->alias], $fixed));
 			$Model->create();
 			$Model->id = isset($data[$Model->alias][$Model->primaryKey]) ? $data[$Model->alias][$Model->primaryKey] : false;
 
