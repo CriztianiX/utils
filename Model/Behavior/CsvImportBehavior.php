@@ -82,6 +82,7 @@ class CsvImportBehavior extends ModelBehavior {
 		if ($handle->eof()) {
 			return false;
 		}
+
 		return $handle->fgetcsv(
 			$this->settings[$Model->alias]['delimiter'],
 			$this->settings[$Model->alias]['enclosure']
@@ -124,7 +125,6 @@ class CsvImportBehavior extends ModelBehavior {
 		$handle = new SplFileObject($file, 'rb');
 		$header = $this->_getHeader($Model, $handle);
 		$db = $Model->getDataSource();
-		$db->begin($Model);
 		$i = 0;
 		$saved = array();
 
@@ -157,60 +157,43 @@ class CsvImportBehavior extends ModelBehavior {
 			$Model->set($data);
 
 			if (!$Model->validates()) {
-				$this->genereateErrorString($Model->validationErrors);
-				$this->corruptedCSV[] = implode(';', $row).';CRITICAL;'.implode(',',$this->stringValidationError);
+				$this->isCorruptedCSV = true;
+				$this->corruptedCSV[] = implode(';', $row).';CRITICAL;'.implode(',',$this->genereateErrorString($Model->validationErrors));
 				$this->errors[$Model->alias][$i]['validation'] = $Model->validationErrors;
 				$error = true;
 				$this->_notify($Model, 'onImportError', $this->errors[$Model->alias][$i]);
-			}
-
-			//beforeImport callback
-			if (!$error && method_exists($Model, 'beforeImport')) {
-				$data = $Model->beforeImport($data, $this->settings[$Model->alias]);
-			}
-
-			/* Maybe the data has been modified or deleted in beforeImport */
-			if($data){
-				// save the row
-				if (!$error && !$Model->saveAll($data, array('validate' => false,'atomic' => false))) {
-					$this->errors[$Model->alias][$i]['save'] = sprintf(__d('utils', '%s for Row %d failed to save.'), $Model->alias, $i);
-					$error = true;
-					$this->_notify($Model, 'onImportError', $this->errors[$Model->alias][$i]);
-				}
-
-				if (!$error) {
-					$this->_notify($Model, 'onImportRow', $data);
-					if ($returnSaved) {
-						$saved[] = $i;
-					}
-				}
 			}else{
-				$this->corruptedCSV[] = implode(';', $row).';NOTICE;MARK AS DUPLICATE';
-				continue;
+				//beforeImport callback
+				if (!$error && method_exists($Model, 'beforeImport')) {
+					$data = $Model->beforeImport($data, $this->settings[$Model->alias]);
+				}
+
+				/* Maybe the data has been modified or deleted in beforeImport */
+				if($data){
+					if(count($saved) == 10) {
+						$db->begin($Model);
+						$Model->saveAll($saved, array('validate' => false,'atomic' => false));
+						$db->commit($Model);
+						$saved = array();
+						$saved[] = $data;
+					}else{
+						$saved[] = $data;
+					}
+				}else{
+					$this->isCorruptedCSV = true;
+					$this->corruptedCSV[] = implode(';', $row).';NOTICE;MARK AS DUPLICATE';
+					continue;
+				}
 			}
 
 			$i++;
 		}
 
-
-		$success = empty($this->errors);
-		
-		/* Force to save valid rows */
-		if($forceSaveValid){
-			$this->isCorruptedCSV = true;
-			$db->commit($Model);	
-			if ($returnSaved) {
-				return $saved;
-			}
-		}else if (!$returnSaved && !$success) {
-			$db->rollback($Model);
-			return false;
-		}
-
-		$db->commit($Model);
-
-		if ($returnSaved) {
-			return $saved;
+		/* There are docs unsaved ? */
+		if(!empty($saved)){
+			$db->begin($Model);
+			$Model->saveAll($saved, array('validate' => false,'atomic' => false));
+			$db->commit($Model);
 		}
 
 		return true;
@@ -273,19 +256,17 @@ class CsvImportBehavior extends ModelBehavior {
 		}
 	}
 
-	private $stringValidationError = array();
-	protected function genereateErrorString($errors)
+	protected function genereateErrorString($errors, &$stringValidationError = array())
 	{
 		foreach($errors as $k => $v){
 			if(is_array($v)) {
-				$this->genereateErrorString($v);
+				$this->genereateErrorString($v, $stringValidationError);
 			}else{
-				$this->stringValidationError[] = $v;
-				
+				$stringValidationError[] = $v;
 			}
 		}
 		
-		return $this->stringValidationError;
+		return $stringValidationError;
 	}
 
 }
