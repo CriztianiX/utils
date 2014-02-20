@@ -170,12 +170,16 @@ class CsvImportBehavior extends ModelBehavior {
 
 				/* Maybe the data has been modified or deleted in beforeImport */
 				if($data){
-					if(count($saved) == 10) {
+					$insertCount = count($saved);
+					if($insertCount == 10) {
 						$db->begin($Model);
 						$Model->saveAll($saved, array('validate' => false,'atomic' => false));
 						$db->commit($Model);
 						$saved = array();
 						$saved[] = $data;
+
+						/* Launch event for reporting */
+						$this->_notify($Model, 'onImportSave', $insertCount);
 					}else{
 						$saved[] = $data;
 					}
@@ -194,6 +198,7 @@ class CsvImportBehavior extends ModelBehavior {
 			$db->begin($Model);
 			$Model->saveAll($saved, array('validate' => false,'atomic' => false));
 			$db->commit($Model);
+			$this->_notify($Model, 'onImportSave', count($saved));
 		}
 
 		return true;
@@ -230,7 +235,7 @@ class CsvImportBehavior extends ModelBehavior {
  * @param mixed listener instances of an object or valid php callback
  * @return void
  */
-	public function attachImportListener(Model $Model, $listener) {
+	public function attachImportListener(Model $Model, $listener) {		
 		$this->_subscribers[$Model->alias][] = $listener;
 	}
 
@@ -246,12 +251,10 @@ class CsvImportBehavior extends ModelBehavior {
 		if (empty($this->_subscribers[$Model->alias])) {
 			return;
 		}
-		foreach ($this->_subscribers[$Model->alias] as $object) {
-			if (method_exists($object, $action)) {
-				$object->{$action}($data);
-			}
-			if (is_callable($object)) {
-				call_user_func($object, $action, $data);
+
+		foreach ($this->_subscribers[$Model->alias] as $event) {
+			if ($action == $event && method_exists($Model, $event)) {
+				$Model->{$event}($data);
 			}
 		}
 	}
