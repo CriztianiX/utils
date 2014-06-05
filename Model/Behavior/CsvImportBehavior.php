@@ -156,6 +156,11 @@ class CsvImportBehavior extends ModelBehavior {
 			$error = false;
 			$Model->set($data);
 
+			/* Maybe we need make a custom validation on the fly instead to use model validation */
+			if (method_exists($Model, 'onImportBeforeValidate')){
+				$Model->onImportBeforeValidate();				
+			}
+
 			if (!$Model->validates()) {
 				$this->isCorruptedCSV = true;
 				$this->corruptedCSV[] = implode(';', $row).';CRITICAL;'.implode(',',$this->genereateErrorString($Model->validationErrors));
